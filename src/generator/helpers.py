@@ -1,8 +1,8 @@
 import uuid
 import random
 
-from ..data.customers import FIRST_NAMES, LAST_NAMES
-from ..data.locations import CITIES
+from data.customers import FIRST_NAMES, LAST_NAMES
+from data.locations import CITIES
 
 
 def generate_id(prefix):

@@ -2,11 +2,11 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from ..data.products import PRODUCTS
-from ..data.customers import FIRST_NAMES, LAST_NAMES
-from ..data.payments import PAYMENT_METHODS
-from ..data.locations import CITIES
-from ..generator.helpers import generate_id, random_customer
+from data.products import PRODUCTS
+from data.customers import FIRST_NAMES, LAST_NAMES
+from data.payments import PAYMENT_METHODS
+from data.locations import CITIES
+from generator.helpers import generate_id, random_customer
 
 def generate_invoice():
 
