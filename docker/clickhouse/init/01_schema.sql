@@ -1,6 +1,13 @@
 CREATE DATABASE IF NOT EXISTS ecommerce;
 
-CREATE TABLE IF NOT EXISTS ecommerce.dim_date
+USE ecommerce;
+
+
+-- ============================================================
+-- Dimension: Date
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dim_date
 (
     date_key UInt32,
     full_date Date,
@@ -20,7 +27,11 @@ ENGINE = MergeTree
 ORDER BY date_key;
 
 
-CREATE TABLE IF NOT EXISTS ecommerce.dim_customer
+-- ============================================================
+-- Dimension: Customer
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dim_customer
 (
     customer_key UInt64,
     customer_id String,
@@ -39,7 +50,11 @@ ENGINE = MergeTree
 ORDER BY customer_id;
 
 
-CREATE TABLE IF NOT EXISTS ecommerce.dim_product
+-- ============================================================
+-- Dimension: Product
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dim_product
 (
     product_key UInt64,
     product_id String,
@@ -52,7 +67,11 @@ ENGINE = MergeTree
 ORDER BY product_id;
 
 
-CREATE TABLE IF NOT EXISTS ecommerce.dim_payment
+-- ============================================================
+-- Dimension: Payment
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dim_payment
 (
     payment_key UInt64,
 
@@ -63,7 +82,48 @@ ENGINE = MergeTree
 ORDER BY payment_key;
 
 
-CREATE TABLE IF NOT EXISTS ecommerce.fact_order_items
+-- ============================================================
+-- Fact: Order Items
+--
+-- Grain:
+-- One row = one order item
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ecommerce.fact_orders
+(
+    order_key UInt64,
+
+    order_id String,
+
+    date_key UInt32,
+    customer_key UInt64,
+    payment_key UInt64,
+
+    subtotal Decimal(12, 2),
+
+    order_discount_amount Decimal(12, 2),
+
+    shipping_cost Decimal(12, 2),
+
+    tax Decimal(12, 2),
+
+    total Decimal(12, 2),
+
+    currency LowCardinality(String),
+
+    order_status LowCardinality(String),
+
+    created_at DateTime64(3, 'UTC')
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(created_at)
+ORDER BY
+(
+    date_key,
+    customer_key,
+    order_id
+);
+
+CREATE TABLE IF NOT EXISTS fact_order_items
 (
     order_item_key UInt64,
 
@@ -90,6 +150,7 @@ CREATE TABLE IF NOT EXISTS ecommerce.fact_order_items
     tax Decimal(12, 2),
 
     currency LowCardinality(String),
+
     order_status LowCardinality(String),
 
     created_at DateTime64(3, 'UTC')
