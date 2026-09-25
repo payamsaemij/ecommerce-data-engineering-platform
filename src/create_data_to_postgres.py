@@ -8,7 +8,7 @@ from kafka_client.producer import OrderProducer
 from logger import get_logger
 
 
-MAX_ORDERS = 200
+MAX_ORDERS = 5
 total_orders = 0
 
 logger = get_logger(__name__)
