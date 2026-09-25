@@ -51,6 +51,44 @@ services:
       KAFKA_NUM_PARTITIONS: 3
 
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.9
+
+    container_name: ecommerce-clickhouse
+
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+
+    environment:
+      CLICKHOUSE_DB: ecommerce
+      CLICKHOUSE_USER: ecommerce_user
+      CLICKHOUSE_PASSWORD: 123456
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "clickhouse-client",
+          "--user",
+          "ecommerce_user",
+          "--password",
+          "123456",
+          "--query",
+          "SELECT 1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
 volumes:
 
   postgres_data:
+  clickhouse_data:
+  clickhouse_logs:

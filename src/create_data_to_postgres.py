@@ -8,7 +8,7 @@ from kafka_client.producer import OrderProducer
 from logger import get_logger
 
 
-MAX_ORDERS = 10
+MAX_ORDERS = 5
 total_orders = 0
 
 logger = get_logger(__name__)
@@ -88,7 +88,7 @@ try:
 
             producer.send_order(event)
 
-            time.sleep(random.uniform(0.2, 2))
+            
 
         total_orders += len(batch)
 
