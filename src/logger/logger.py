@@ -2,9 +2,39 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
+
+
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
 
 
 class JsonFormatter(logging.Formatter):
+
+    STANDARD_FIELDS = {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+    }
 
     def format(self, record):
 
@@ -15,32 +45,11 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        if hasattr(record, "service"):
-            log_data["service"] = record.service
+        # Add structured fields from `extra`
+        for key, value in record.__dict__.items():
 
-        if hasattr(record, "event"):
-            log_data["event"] = record.event
-
-        if hasattr(record, "event_id"):
-            log_data["event_id"] = record.event_id
-
-        if hasattr(record, "order_id"):
-            log_data["order_id"] = record.order_id
-
-        if hasattr(record, "customer_id"):
-            log_data["customer_id"] = record.customer_id
-
-        if hasattr(record, "partition"):
-            log_data["partition"] = record.partition
-
-        if hasattr(record, "offset"):
-            log_data["offset"] = record.offset
-
-        if hasattr(record, "operation"):
-            log_data["operation"] = record.operation
-
-        if hasattr(record, "duration_ms"):
-            log_data["duration_ms"] = record.duration_ms
+            if key not in self.STANDARD_FIELDS:
+                log_data[key] = value
 
         if record.exc_info:
             log_data["exception"] = self.formatException(
@@ -53,21 +62,46 @@ class JsonFormatter(logging.Formatter):
         )
 
 
-def get_logger(name: str) -> logging.Logger:
+def get_logger(service):
 
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(service)
 
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.INFO)
-
-    handler = logging.StreamHandler(sys.stdout)
-
-    handler.setFormatter(JsonFormatter())
-
-    logger.addHandler(handler)
-
     logger.propagate = False
+
+    formatter = JsonFormatter()
+
+    # -------------------------
+    # Console
+    # -------------------------
+
+    console_handler = logging.StreamHandler(sys.stdout)
+
+    console_handler.setFormatter(formatter)
+
+    # -------------------------
+    # File
+    # -------------------------
+
+    file_path = LOG_DIR / f"{service}.log"
+
+    file_handler = RotatingFileHandler(
+        file_path,
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+
+    file_handler.setFormatter(formatter)
+
+    # -------------------------
+    # Handlers
+    # -------------------------
+
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
 
     return logger

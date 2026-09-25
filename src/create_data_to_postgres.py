@@ -8,10 +8,11 @@ from kafka_client.producer import OrderProducer
 from logger import get_logger
 
 
-MAX_ORDERS = 100
+MAX_ORDERS = 10
 total_orders = 0
 
 logger = get_logger(__name__)
+logger = get_logger("generator")
 
 
 logger.info(
@@ -143,19 +144,6 @@ try:
         if total_orders >= MAX_ORDERS:
             break
 
-        wait_time = random.uniform(5, 10)
-
-        logger.info(
-            "Generator waiting before next batch",
-            extra={
-                "service": "ecommerce-generator",
-                "event": "generator_waiting",
-                "wait_seconds": round(wait_time, 2),
-            },
-        )
-
-        print(f"\nWaiting {wait_time:.2f} seconds...")
-        time.sleep(wait_time)
 
 finally:
 

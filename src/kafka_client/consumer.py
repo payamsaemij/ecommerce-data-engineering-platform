@@ -6,7 +6,7 @@ from logger import get_logger
 
 
 logger = get_logger(__name__)
-
+logger = get_logger("kafka-consumer")
 
 class BaseKafkaConsumer:
 
