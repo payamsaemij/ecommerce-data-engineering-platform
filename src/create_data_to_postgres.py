@@ -3,202 +3,164 @@ import random
 import time
 
 from generator.invoice import generate_invoice
-from generator.logger import logger, metrics_logger
-from postgres.loader import load_batch
+from kafka_client.events import create_order_event
+from kafka_client.producer import OrderProducer
+from logger import get_logger
+
+
+MAX_ORDERS = 10
+total_orders = 0
+
+logger = get_logger(__name__)
+logger = get_logger("generator")
 
 
 logger.info(
     "Generator started",
     extra={
+        "service": "ecommerce-generator",
         "event": "generator_started",
-        "extra_fields": {
-            "service": "ecommerce-generator"
-        }
-    }
+    },
 )
 
+producer = OrderProducer()
 
-while True:
+try:
 
-    # --------------------------------------
-    # تعداد Invoice در Batch
-    # --------------------------------------
+    while total_orders < MAX_ORDERS:
 
-    number_of_invoices = random.randint(
-        1,
-        10
-    )
+        remaining_orders = MAX_ORDERS - total_orders
 
-    print(
-        "\n"
-        + "#" * 80
-    )
-
-    print(
-        f"Generating {number_of_invoices} invoices..."
-    )
-
-    print(
-        "#" * 80
-    )
-
-
-    # --------------------------------------
-    # Generate Batch
-    # --------------------------------------
-
-    batch = []
-
-    for invoice_number in range(
-        1,
-        number_of_invoices + 1
-    ):
-
-        invoice = generate_invoice()
-
-        batch.append(invoice)
-
-        # ----------------------------------
-        # Invoice Log
-        # ----------------------------------
+        number_of_invoices = min(
+            random.randint(1, 10),
+            remaining_orders
+        )
 
         logger.info(
-            "Invoice generated successfully",
+            "Generating order batch",
             extra={
-                "event": "invoice_generated",
-                "extra_fields": {
-                    "invoice_id": invoice["invoice_id"],
+                "service": "ecommerce-generator",
+                "event": "batch_generation_started",
+                "batch_size": number_of_invoices,
+                "total_orders": total_orders,
+                "remaining_orders": remaining_orders,
+            },
+        )
+
+        print("\n" + "#" * 80)
+        print(f"Generating {number_of_invoices} invoices...")
+        print(f"Progress: {total_orders}/{MAX_ORDERS}")
+        print("#" * 80)
+
+        batch = []
+
+        for invoice_number in range(1, number_of_invoices + 1):
+
+            invoice = generate_invoice()
+            batch.append(invoice)
+
+            event = create_order_event(invoice)
+
+            logger.info(
+                "Invoice generated successfully",
+                extra={
+                    "service": "ecommerce-generator",
+                    "event": "invoice_generated",
+                    "event_id": event["event_id"],
                     "order_id": invoice["order_id"],
                     "customer_id": invoice["customer"]["customer_id"],
-                    "items_count": len(invoice["items"]),
-                    "total": invoice["pricing"]["total"],
-                    "payment_method": invoice["payment"]["method"],
-                    "payment_status": invoice["payment"]["status"],
-                    "order_status": invoice["order_status"]
-                }
-            }
-        )
-
-        print(
-            f"\nInvoice {invoice_number}/{number_of_invoices}"
-        )
-
-        print(
-            json.dumps(
-                invoice,
-                indent=2,
-                ensure_ascii=False
+                },
             )
+
+            print(
+                f"\nInvoice {invoice_number}/{number_of_invoices}"
+            )
+
+            print(
+                json.dumps(
+                    invoice,
+                    indent=2,
+                    ensure_ascii=False
+                )
+            )
+
+            print("\n" + "-" * 80)
+
+            producer.send_order(event)
+
+            time.sleep(random.uniform(0.2, 2))
+
+        total_orders += len(batch)
+
+        expected_customers = len(batch)
+        expected_orders = len(batch)
+        expected_payments = len(batch)
+
+        expected_order_items = sum(
+            len(invoice["items"])
+            for invoice in batch
+        )
+
+        expected_products = len({
+            item["product_id"]
+            for invoice in batch
+            for item in invoice["items"]
+        })
+
+        logger.info(
+            "Batch published to Kafka",
+            extra={
+                "service": "ecommerce-generator",
+                "event": "batch_published",
+                "orders": expected_orders,
+                "customers": expected_customers,
+                "products": expected_products,
+                "order_items": expected_order_items,
+                "payments": expected_payments,
+                "total_orders": total_orders,
+                "max_orders": MAX_ORDERS,
+            },
+        )
+
+        print("\nExpected Kafka events:")
+        print(f"Customers    : {expected_customers}")
+        print(f"Products     : {expected_products}")
+        print(f"Orders       : {expected_orders}")
+        print(f"Order Items  : {expected_order_items}")
+        print(f"Payments     : {expected_payments}")
+
+        producer.flush()
+
+        print(
+            f"\nBatch of {len(batch)} invoices "
+            "published to Kafka successfully."
         )
 
         print(
-            "\n"
-            + "-" * 80
+            f"Total orders published: "
+            f"{total_orders}/{MAX_ORDERS}"
         )
 
-
-        # ----------------------------------
-        # فاصله بین فاکتورها
-        # ----------------------------------
-
-        time.sleep(
-            random.uniform(
-                0.2,
-                2
-            )
-        )
+        if total_orders >= MAX_ORDERS:
+            break
 
 
-    # --------------------------------------
-    # Expected PostgreSQL Records
-    # --------------------------------------
+finally:
 
-    expected_customers = len(batch)
+    producer.close()
 
-    expected_orders = len(batch)
-
-    expected_payments = len(batch)
-
-    expected_order_items = sum(
-        len(invoice["items"])
-        for invoice in batch
-    )
-
-    expected_products = len({
-        item["product_id"]
-        for invoice in batch
-        for item in invoice["items"]
-    })
-
-
-    # --------------------------------------
-    # Metrics Log
-    # --------------------------------------
-
-    metrics_logger.info(
-        "Batch load expected | "
-        f"invoices={len(batch)} | "
-        f"customers={expected_customers} | "
-        f"products={expected_products} | "
-        f"orders={expected_orders} | "
-        f"order_items={expected_order_items} | "
-        f"payments={expected_payments}"
-    )
-
-
-    # --------------------------------------
-    # نمایش تعداد مورد انتظار
-    # --------------------------------------
-
-    print(
-        "\nExpected PostgreSQL records:"
+    logger.info(
+        "Generator stopped",
+        extra={
+            "service": "ecommerce-generator",
+            "event": "generator_stopped",
+            "total_orders": total_orders,
+            "max_orders": MAX_ORDERS,
+        },
     )
 
     print(
-        f"Customers    : {expected_customers}"
+        f"\nGenerator stopped. "
+        f"Total orders generated: {total_orders}"
     )
 
-    print(
-        f"Products     : {expected_products}"
-    )
-
-    print(
-        f"Orders       : {expected_orders}"
-    )
-
-    print(
-        f"Order Items  : {expected_order_items}"
-    )
-
-    print(
-        f"Payments     : {expected_payments}"
-    )
-
-
-    # --------------------------------------
-    # Load Batch → PostgreSQL
-    # --------------------------------------
-
-    print(
-        "\nLoading batch into PostgreSQL..."
-    )
-
-    load_batch(batch)
-
-
-    # --------------------------------------
-    # فاصله تا Batch بعدی
-    # --------------------------------------
-
-    wait_time = random.uniform(
-        5,
-        10
-    )
-
-    print(
-        f"\nWaiting {wait_time:.2f} seconds..."
-    )
-
-    time.sleep(
-        wait_time
-    )
