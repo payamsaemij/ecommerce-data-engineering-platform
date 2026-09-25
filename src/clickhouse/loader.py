@@ -22,6 +22,42 @@ def load_invoice(invoice):
         ).replace(tzinfo=None)
 
         customer_id = customer["customer_id"]
+        order_id = invoice["order_id"]
+
+        # --------------------------------------------------
+        # 0. Idempotency Check
+        # --------------------------------------------------
+
+        existing_order = client.query(
+            """
+            SELECT 1
+            FROM fact_orders
+            WHERE order_id = {order_id:String}
+            LIMIT 1
+            """,
+            parameters={
+                "order_id": order_id,
+            },
+        ).result_rows
+
+        if existing_order:
+
+            logger.info(
+                "Order already exists in ClickHouse",
+                extra={
+                    "service": "clickhouse-loader",
+                    "event": "clickhouse_load_skipped",
+                    "invoice_id": invoice["invoice_id"],
+                    "order_id": order_id,
+                    "customer_id": customer_id,
+                },
+            )
+
+            return
+
+        # --------------------------------------------------
+        # Load Started
+        # --------------------------------------------------
 
         logger.info(
             "Loading invoice into ClickHouse",
@@ -29,7 +65,7 @@ def load_invoice(invoice):
                 "service": "clickhouse-loader",
                 "event": "clickhouse_load_started",
                 "invoice_id": invoice["invoice_id"],
-                "order_id": invoice["order_id"],
+                "order_id": order_id,
                 "customer_id": customer_id,
             },
         )
@@ -51,9 +87,11 @@ def load_invoice(invoice):
         ).result_rows
 
         if existing_customer:
+
             customer_key = existing_customer[0][0]
 
         else:
+
             customer_key = client.query(
                 """
                 SELECT coalesce(max(customer_key), 0) + 1
@@ -106,9 +144,11 @@ def load_invoice(invoice):
         ).result_rows
 
         if existing_payment:
+
             payment_key = existing_payment[0][0]
 
         else:
+
             payment_key = client.query(
                 """
                 SELECT coalesce(max(payment_key), 0) + 1
@@ -147,9 +187,11 @@ def load_invoice(invoice):
         ).result_rows
 
         if existing_date:
+
             date_key = existing_date[0][0]
 
         else:
+
             date_key = client.query(
                 """
                 SELECT toYYYYMMDD(
@@ -212,9 +254,11 @@ def load_invoice(invoice):
             ).result_rows
 
             if existing_product:
+
                 product_key = existing_product[0][0]
 
             else:
+
                 product_key = client.query(
                     """
                     SELECT coalesce(max(product_key), 0) + 1
@@ -243,7 +287,52 @@ def load_invoice(invoice):
             product_keys[product_id] = product_key
 
         # --------------------------------------------------
-        # 5. Fact
+        # 5. Order Fact
+        # --------------------------------------------------
+
+        order_key = client.query(
+            """
+            SELECT coalesce(max(order_key), 0) + 1
+            FROM fact_orders
+            """
+        ).result_rows[0][0]
+
+        client.insert(
+            "fact_orders",
+            [[
+                order_key,
+                order_id,
+                date_key,
+                customer_key,
+                payment_key,
+                pricing["subtotal"],
+                pricing["order_discount_amount"],
+                pricing["shipping"],
+                pricing["tax"],
+                pricing["total"],
+                invoice["currency"],
+                invoice["order_status"],
+                created_at,
+            ]],
+            column_names=[
+                "order_key",
+                "order_id",
+                "date_key",
+                "customer_key",
+                "payment_key",
+                "subtotal",
+                "order_discount_amount",
+                "shipping_cost",
+                "tax",
+                "total",
+                "currency",
+                "order_status",
+                "created_at",
+            ],
+        )
+
+        # --------------------------------------------------
+        # 6. Order Item Fact
         # --------------------------------------------------
 
         fact_rows = []
@@ -255,7 +344,6 @@ def load_invoice(invoice):
             """
         ).result_rows[0][0]
 
-
         for item in invoice["items"]:
 
             gross_price = round(
@@ -266,7 +354,7 @@ def load_invoice(invoice):
             fact_rows.append([
                 next_order_item_key,
                 str(uuid4()),
-                invoice["order_id"],
+                order_id,
                 date_key,
                 customer_key,
                 product_keys[item["product_id"]],
@@ -277,16 +365,12 @@ def load_invoice(invoice):
                 item["discount_percent"],
                 item["discount_amount"],
                 item["total"],
-                pricing["order_discount_amount"],
-                pricing["shipping"],
-                pricing["tax"],
                 invoice["currency"],
                 invoice["order_status"],
                 created_at,
             ])
 
             next_order_item_key += 1
-
 
         client.insert(
             "fact_order_items",
@@ -305,14 +389,15 @@ def load_invoice(invoice):
                 "discount_percent",
                 "discount_amount",
                 "item_total",
-                "order_discount_amount",
-                "shipping_cost",
-                "tax",
                 "currency",
                 "order_status",
                 "created_at",
             ],
         )
+
+        # --------------------------------------------------
+        # Load Completed
+        # --------------------------------------------------
 
         logger.info(
             "Invoice loaded into ClickHouse",
@@ -320,7 +405,7 @@ def load_invoice(invoice):
                 "service": "clickhouse-loader",
                 "event": "clickhouse_load_completed",
                 "invoice_id": invoice["invoice_id"],
-                "order_id": invoice["order_id"],
+                "order_id": order_id,
                 "customer_id": customer_id,
                 "items_count": len(invoice["items"]),
             },
