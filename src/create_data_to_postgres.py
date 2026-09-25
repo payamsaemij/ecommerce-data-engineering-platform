@@ -8,6 +8,10 @@ from kafka_client.events import create_order_event
 from kafka_client.producer import OrderProducer
 
 
+MAX_ORDERS = 100
+total_orders = 0
+
+
 logger.info(
     "Generator started",
     extra={
@@ -22,12 +26,18 @@ producer = OrderProducer()
 
 try:
 
-    while True:
+    while total_orders < MAX_ORDERS:
 
-        number_of_invoices = random.randint(1, 10)
+        remaining_orders = MAX_ORDERS - total_orders
+
+        number_of_invoices = min(
+            random.randint(1, 10),
+            remaining_orders
+        )
 
         print("\n" + "#" * 80)
         print(f"Generating {number_of_invoices} invoices...")
+        print(f"Progress: {total_orders}/{MAX_ORDERS}")
         print("#" * 80)
 
         batch = []
@@ -56,7 +66,9 @@ try:
                 }
             )
 
-            print(f"\nInvoice {invoice_number}/{number_of_invoices}")
+            print(
+                f"\nInvoice {invoice_number}/{number_of_invoices}"
+            )
 
             print(json.dumps(
                 invoice,
@@ -69,6 +81,8 @@ try:
             producer.send_order(event)
 
             time.sleep(random.uniform(0.2, 2))
+
+        total_orders += len(batch)
 
         expected_customers = len(batch)
         expected_orders = len(batch)
@@ -109,10 +123,23 @@ try:
             "published to Kafka successfully."
         )
 
+        print(
+            f"Total orders published: "
+            f"{total_orders}/{MAX_ORDERS}"
+        )
+
+        if total_orders >= MAX_ORDERS:
+            break
+
         wait_time = random.uniform(5, 10)
         print(f"\nWaiting {wait_time:.2f} seconds...")
         time.sleep(wait_time)
 
 finally:
 
-    producer.close()    
+    producer.close()
+
+    print(
+        f"\nGenerator stopped. "
+        f"Total orders generated: {total_orders}"
+    )
