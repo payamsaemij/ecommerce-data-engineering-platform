@@ -88,6 +88,40 @@ ORDER BY payment_key;
 -- Grain:
 -- One row = one order item
 -- ============================================================
+CREATE TABLE IF NOT EXISTS ecommerce.fact_orders
+(
+    order_key UInt64,
+
+    order_id String,
+
+    date_key UInt32,
+    customer_key UInt64,
+    payment_key UInt64,
+
+    subtotal Decimal(12, 2),
+
+    order_discount_amount Decimal(12, 2),
+
+    shipping_cost Decimal(12, 2),
+
+    tax Decimal(12, 2),
+
+    total Decimal(12, 2),
+
+    currency LowCardinality(String),
+
+    order_status LowCardinality(String),
+
+    created_at DateTime64(3, 'UTC')
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(created_at)
+ORDER BY
+(
+    date_key,
+    customer_key,
+    order_id
+);
 
 CREATE TABLE IF NOT EXISTS fact_order_items
 (
