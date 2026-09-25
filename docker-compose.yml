@@ -87,6 +87,30 @@ services:
       retries: 10
 
 
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:26.9
+
+    container_name: ecommerce-clickhouse-init
+
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+    volumes:
+      - ./docker/clickhouse/init:/init:ro
+
+    entrypoint: ["/bin/bash", "-c"]
+
+    command:
+      - |
+        clickhouse-client \
+          --host clickhouse \
+          --user ecommerce_user \
+          --password 123456 \
+          --database ecommerce \
+          --multiquery < /init/01_schema.sql
+
+
 volumes:
 
   postgres_data:
