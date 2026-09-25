@@ -1,5 +1,9 @@
 from kafka_client.consumer import BaseKafkaConsumer
 from writers.postgres_writer import PostgresWriter
+from logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class PostgresConsumer:
@@ -13,9 +17,25 @@ class PostgresConsumer:
 
         self.writer = PostgresWriter()
 
+        logger.info(
+            "PostgreSQL consumer initialized",
+            extra={
+                "service": "postgres-consumer",
+                "event": "consumer_initialized",
+                "topic": "orders",
+                "group_id": "postgres-writer-v2",
+            },
+        )
+
     def run(self):
 
-        print("PostgreSQL Consumer started...")
+        logger.info(
+            "PostgreSQL consumer started",
+            extra={
+                "service": "postgres-consumer",
+                "event": "consumer_started",
+            },
+        )
 
         try:
 
@@ -23,30 +43,100 @@ class PostgresConsumer:
 
                 event = message.value
 
+                event_id = event.get("event_id")
+                order_id = event.get("order_id")
+                customer_id = event.get("customer_id")
+
+                logger.info(
+                    "Kafka event received",
+                    extra={
+                        "service": "postgres-consumer",
+                        "event": "kafka_event_received",
+                        "event_id": event_id,
+                        "order_id": order_id,
+                        "customer_id": customer_id,
+                        "partition": message.partition,
+                        "offset": message.offset,
+                    },
+                )
+
                 try:
 
                     self.writer.write(event)
 
-                    self.consumer.commit()
-
-                    print(
-                        f"Processed order "
-                        f"{event['order_id']} "
-                        f"| partition={message.partition} "
-                        f"| offset={message.offset}"
+                    logger.info(
+                        "Event written to PostgreSQL",
+                        extra={
+                            "service": "postgres-consumer",
+                            "event": "postgres_write_success",
+                            "event_id": event_id,
+                            "order_id": order_id,
+                            "customer_id": customer_id,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
                     )
 
-                except Exception as error:
+                    self.consumer.commit()
 
-                    print(
-                        f"Failed to process "
-                        f"{event.get('order_id')}: {error}"
+                    logger.info(
+                        "Kafka event processed successfully",
+                        extra={
+                            "service": "postgres-consumer",
+                            "event": "event_processed",
+                            "event_id": event_id,
+                            "order_id": order_id,
+                            "customer_id": customer_id,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
+                    )
+
+                except Exception:
+
+                    logger.exception(
+                        "Failed to process Kafka event",
+                        extra={
+                            "service": "postgres-consumer",
+                            "event": "event_processing_failed",
+                            "event_id": event_id,
+                            "order_id": order_id,
+                            "customer_id": customer_id,
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
                     )
 
         except KeyboardInterrupt:
 
-            print("\nPostgreSQL Consumer stopped.")
+            logger.info(
+                "PostgreSQL consumer stopped by user",
+                extra={
+                    "service": "postgres-consumer",
+                    "event": "consumer_stopped",
+                },
+            )
+
+        except Exception:
+
+            logger.exception(
+                "PostgreSQL consumer crashed",
+                extra={
+                    "service": "postgres-consumer",
+                    "event": "consumer_crashed",
+                },
+            )
+
+            raise
 
         finally:
 
             self.consumer.close()
+
+            logger.info(
+                "PostgreSQL consumer closed",
+                extra={
+                    "service": "postgres-consumer",
+                    "event": "consumer_closed",
+                },
+            )

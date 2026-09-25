@@ -3,23 +3,23 @@ import random
 import time
 
 from generator.invoice import generate_invoice
-from generator.logger import logger, metrics_logger
 from kafka_client.events import create_order_event
 from kafka_client.producer import OrderProducer
+from logger import get_logger
 
 
 MAX_ORDERS = 100
 total_orders = 0
 
+logger = get_logger(__name__)
+
 
 logger.info(
     "Generator started",
     extra={
+        "service": "ecommerce-generator",
         "event": "generator_started",
-        "extra_fields": {
-            "service": "ecommerce-generator"
-        }
-    }
+    },
 )
 
 producer = OrderProducer()
@@ -33,6 +33,17 @@ try:
         number_of_invoices = min(
             random.randint(1, 10),
             remaining_orders
+        )
+
+        logger.info(
+            "Generating order batch",
+            extra={
+                "service": "ecommerce-generator",
+                "event": "batch_generation_started",
+                "batch_size": number_of_invoices,
+                "total_orders": total_orders,
+                "remaining_orders": remaining_orders,
+            },
         )
 
         print("\n" + "#" * 80)
@@ -52,29 +63,25 @@ try:
             logger.info(
                 "Invoice generated successfully",
                 extra={
+                    "service": "ecommerce-generator",
                     "event": "invoice_generated",
-                    "extra_fields": {
-                        "invoice_id": invoice["invoice_id"],
-                        "order_id": invoice["order_id"],
-                        "customer_id": invoice["customer"]["customer_id"],
-                        "items_count": len(invoice["items"]),
-                        "total": invoice["pricing"]["total"],
-                        "payment_method": invoice["payment"]["method"],
-                        "payment_status": invoice["payment"]["status"],
-                        "order_status": invoice["order_status"]
-                    }
-                }
+                    "event_id": event["event_id"],
+                    "order_id": invoice["order_id"],
+                    "customer_id": invoice["customer"]["customer_id"],
+                },
             )
 
             print(
                 f"\nInvoice {invoice_number}/{number_of_invoices}"
             )
 
-            print(json.dumps(
-                invoice,
-                indent=2,
-                ensure_ascii=False
-            ))
+            print(
+                json.dumps(
+                    invoice,
+                    indent=2,
+                    ensure_ascii=False
+                )
+            )
 
             print("\n" + "-" * 80)
 
@@ -99,14 +106,19 @@ try:
             for item in invoice["items"]
         })
 
-        metrics_logger.info(
-            "Batch Kafka publish expected | "
-            f"invoices={len(batch)} | "
-            f"customers={expected_customers} | "
-            f"products={expected_products} | "
-            f"orders={expected_orders} | "
-            f"order_items={expected_order_items} | "
-            f"payments={expected_payments}"
+        logger.info(
+            "Batch published to Kafka",
+            extra={
+                "service": "ecommerce-generator",
+                "event": "batch_published",
+                "orders": expected_orders,
+                "customers": expected_customers,
+                "products": expected_products,
+                "order_items": expected_order_items,
+                "payments": expected_payments,
+                "total_orders": total_orders,
+                "max_orders": MAX_ORDERS,
+            },
         )
 
         print("\nExpected Kafka events:")
@@ -132,6 +144,16 @@ try:
             break
 
         wait_time = random.uniform(5, 10)
+
+        logger.info(
+            "Generator waiting before next batch",
+            extra={
+                "service": "ecommerce-generator",
+                "event": "generator_waiting",
+                "wait_seconds": round(wait_time, 2),
+            },
+        )
+
         print(f"\nWaiting {wait_time:.2f} seconds...")
         time.sleep(wait_time)
 
@@ -139,7 +161,18 @@ finally:
 
     producer.close()
 
+    logger.info(
+        "Generator stopped",
+        extra={
+            "service": "ecommerce-generator",
+            "event": "generator_stopped",
+            "total_orders": total_orders,
+            "max_orders": MAX_ORDERS,
+        },
+    )
+
     print(
         f"\nGenerator stopped. "
         f"Total orders generated: {total_orders}"
     )
+
