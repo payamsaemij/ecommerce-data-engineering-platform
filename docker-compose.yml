@@ -113,6 +113,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+      - ./docker/clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
 
     healthcheck:
       test:
@@ -190,7 +191,101 @@ services:
       start_period: 60s
 
 
+  # PostgreSQL metrics
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    container_name: ecommerce-postgres-exporter
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/ecommerce_db?sslmode=disable"
+      DATA_SOURCE_USER: ecommerce_user
+      DATA_SOURCE_PASS: "123456"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  # Kafka metrics
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: ecommerce-kafka-exporter
+    restart: unless-stopped
+
+    command:
+      - "--kafka.server=kafka:9092"
+
+    depends_on:
+      kafka:
+        condition: service_started
+
+
+  # Docker container metrics
+  cadvisor:
+    image: ghcr.io/google/cadvisor:latest
+    container_name: ecommerce-cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+
+  # Prometheus metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ecommerce-prometheus
+    restart: unless-stopped
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+    depends_on:
+      - postgres-exporter
+      - kafka-exporter
+      - cadvisor
+      - clickhouse
+
+
+  # Grafana dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ecommerce-grafana
+    restart: unless-stopped
+
+    ports:
+      - "3001:3000"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "123456"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+    depends_on:
+      - prometheus
+
+
 volumes:
   postgres_data:
   clickhouse_data:
   clickhouse_logs:
+  prometheus_data:
+  grafana_data:
