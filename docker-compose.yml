@@ -5,11 +5,12 @@ services:
     build:
       context: ./docker/postgres
     container_name: ecommerce-postgres
+    restart: unless-stopped
 
     environment:
       POSTGRES_DB: ecommerce_db
       POSTGRES_USER: ecommerce_user
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: "123456"
 
     ports:
       - "5432:5432"
@@ -23,11 +24,40 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
+
+
+  postgres-init:
+    build:
+      context: ./docker/postgres
+    container_name: ecommerce-postgres-init
+    restart: "no"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      PGPASSWORD: "123456"
+
+    volumes:
+      - ./docker/postgres/init:/init:ro
+
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        psql \
+          --host postgres \
+          --username ecommerce_user \
+          --dbname postgres \
+          --set ON_ERROR_STOP=1 \
+          --file /init/02_metabase_db.sql
 
 
   kafka:
     image: apache/kafka:4.0.0
     container_name: ecommerce-kafka
+    restart: unless-stopped
 
     ports:
       - "9092:9094"
@@ -56,6 +86,7 @@ services:
     build:
       context: ./docker/kafka
     container_name: ecommerce-kafka-init
+    restart: "no"
 
     depends_on:
       kafka:
@@ -63,12 +94,11 @@ services:
 
     entrypoint: ["/bin/bash", "/opt/kafka/init/01_topics.sh"]
 
-    restart: "no"
-
 
   clickhouse:
     image: clickhouse/clickhouse-server:26.9
     container_name: ecommerce-clickhouse
+    restart: unless-stopped
 
     ports:
       - "8123:8123"
@@ -77,7 +107,7 @@ services:
     environment:
       CLICKHOUSE_DB: ecommerce
       CLICKHOUSE_USER: ecommerce_user
-      CLICKHOUSE_PASSWORD: 123456
+      CLICKHOUSE_PASSWORD: "123456"
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
 
     volumes:
@@ -99,11 +129,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
 
   clickhouse-init:
     image: clickhouse/clickhouse-server:26.9
     container_name: ecommerce-clickhouse-init
+    restart: "no"
 
     depends_on:
       clickhouse:
@@ -113,7 +145,6 @@ services:
       - ./docker/clickhouse/init:/init:ro
 
     entrypoint: ["/bin/bash", "-c"]
-
     command:
       - |
         clickhouse-client \
@@ -122,6 +153,41 @@ services:
           --password 123456 \
           --database ecommerce \
           --multiquery < /init/01_schema.sql
+
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: ecommerce-metabase
+    hostname: metabase
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase_db
+      MB_DB_PORT: 5432
+      MB_DB_USER: ecommerce_user
+      MB_DB_PASS: "123456"
+      MB_DB_HOST: postgres
+      JAVA_TIMEZONE: Asia/Tehran
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+
+    volumes:
+      - /dev/urandom:/dev/random:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "-I", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
 
 volumes:
